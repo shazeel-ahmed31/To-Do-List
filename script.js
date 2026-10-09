@@ -22,6 +22,10 @@ class TaskManager {
             this.addTask();
         });
 
+        document.getElementById('taskInput').addEventListener('input', e => e.target.setCustomValidity(''));
+        document.getElementById('editTaskInput').addEventListener('input', e => e.target.setCustomValidity(''));
+        document.getElementById('editModal').addEventListener('shown.bs.modal', () => document.getElementById('editTaskInput').focus());
+        document.getElementById('editModal').addEventListener('hidden.bs.modal', () => { this.editingTaskId = null; document.getElementById('taskInput').focus(); });
         // Search functionality
         document.getElementById('searchInput').addEventListener('input', (e) => {
             this.currentSearch = e.target.value.toLowerCase();
@@ -55,10 +59,11 @@ class TaskManager {
         const taskInput = document.getElementById('taskInput');
         const taskText = taskInput.value.trim();
 
-        if (taskText === '') return;
+        taskInput.setCustomValidity(taskText && taskText.length <= 500 ? '' : 'Enter a task of 1 to 500 characters.');
+        if (!taskInput.reportValidity()) return;
 
         const newTask = {
-            id: Date.now(),
+            id: TaskData.nextId(this.tasks),
             text: taskText,
             completed: false,
             createdAt: new Date().toISOString(),
@@ -113,7 +118,9 @@ class TaskManager {
 
     saveEdit() {
         const newText = document.getElementById('editTaskInput').value.trim();
-        if (newText === '' || this.editingTaskId === null) return;
+        const input = document.getElementById('editTaskInput');
+        input.setCustomValidity(newText && newText.length <= 500 ? '' : 'Enter a task of 1 to 500 characters.');
+        if (!input.reportValidity() || this.editingTaskId === null) return;
 
         const task = this.tasks.find(task => task.id === this.editingTaskId);
         if (task) {
@@ -138,32 +145,14 @@ class TaskManager {
     }
 
     getFilteredTasks() {
-        let filteredTasks = this.tasks;
-
-        // Apply search filter
-        if (this.currentSearch) {
-            filteredTasks = filteredTasks.filter(task =>
-                task.text.toLowerCase().includes(this.currentSearch)
-            );
-        }
-
-        // Apply status filter
-        switch (this.currentFilter) {
-            case 'active':
-                filteredTasks = filteredTasks.filter(task => !task.completed);
-                break;
-            case 'completed':
-                filteredTasks = filteredTasks.filter(task => task.completed);
-                break;
-            default:
-                // 'all' - no additional filtering needed
-                break;
-        }
-
-        return filteredTasks;
+        return TaskData.filterTasks(this.tasks, this.currentSearch, this.currentFilter);
     }
 
     renderTasks() {
+        const focused = document.activeElement;
+        const row = focused.closest?.('[data-task-id]');
+        const focusId = row?.dataset.taskId;
+        const focusKind = focused.matches?.('.task-checkbox') ? '.task-checkbox' : focused.matches?.('.btn-warning') ? '.btn-warning' : '.btn-danger';
         const taskList = document.getElementById('taskList');
         const emptyState = document.getElementById('emptyState');
         const filteredTasks = this.getFilteredTasks();
@@ -171,6 +160,8 @@ class TaskManager {
         if (filteredTasks.length === 0) {
             taskList.innerHTML = '';
             emptyState.classList.remove('d-none');
+            if (focusId) document.getElementById('taskInput').focus();
+            emptyState.querySelector('p').textContent = this.tasks.length ? 'Try another search or task filter.' : 'Add a new task to get started!';
             return;
         }
 
@@ -181,16 +172,16 @@ class TaskManager {
                 <div class="task-content">
                     <div class="task-left">
                         <input type="checkbox" class="task-checkbox" ${task.completed ? 'checked' : ''} 
-                               onchange="taskManager.toggleTask(${task.id})">
+                               aria-label="Mark ${this.escapeHtml(task.text)} ${task.completed ? 'active' : 'completed'}" onchange="taskManager.toggleTask(${task.id})">
                         <p class="task-text">${this.escapeHtml(task.text)}</p>
                     </div>
                     <div class="task-actions">
                         <button class="btn btn-warning btn-sm" onclick="taskManager.editTask(${task.id})" 
-                                title="Edit task">
+                                aria-label="Edit ${this.escapeHtml(task.text)}" title="Edit task">
                             <i class="fas fa-edit"></i>
                         </button>
                         <button class="btn btn-danger btn-sm" onclick="taskManager.deleteTask(${task.id})" 
-                                title="Delete task">
+                                aria-label="Delete ${this.escapeHtml(task.text)}" title="Delete task">
                             <i class="fas fa-trash"></i>
                         </button>
                     </div>
@@ -204,6 +195,7 @@ class TaskManager {
         `).join('');
 
         taskList.innerHTML = tasksHTML;
+        if (focusId) (taskList.querySelector(`[data-task-id="${focusId}"] ${focusKind}`) || document.getElementById('taskInput')).focus();
     }
 
     updateStats() {
@@ -219,9 +211,9 @@ class TaskManager {
     loadTasks() {
         try {
             const tasks = localStorage.getItem('taskManagerTasks');
-            return tasks ? JSON.parse(tasks) : [];
+            return tasks ? TaskData.validateTasks(JSON.parse(tasks)) : [];
         } catch (error) {
-            console.error('Error loading tasks from localStorage:', error);
+            document.getElementById('storageStatus').textContent = 'Saved tasks could not be read. Original storage has been kept; adding tasks will replace it.';
             return [];
         }
     }
@@ -229,16 +221,17 @@ class TaskManager {
     saveTasks() {
         try {
             localStorage.setItem('taskManagerTasks', JSON.stringify(this.tasks));
+            document.getElementById('storageStatus').textContent = '';
         } catch (error) {
             console.error('Error saving tasks to localStorage:', error);
-            alert('Unable to save tasks. Your browser storage might be full.');
+            document.getElementById('storageStatus').textContent = 'Changes are only in memory: browser storage is unavailable or full.';
         }
     }
 
     escapeHtml(text) {
         const div = document.createElement('div');
         div.textContent = text;
-        return div.innerHTML;
+        return div.innerHTML.replaceAll('"', '&quot;').replaceAll("'", '&#39;');
     }
 
     formatDate(dateString) {
@@ -249,43 +242,7 @@ class TaskManager {
         });
     }
 
-    // Export tasks to JSON
-    exportTasks() {
-        const dataStr = JSON.stringify(this.tasks, null, 2);
-        const dataBlob = new Blob([dataStr], { type: 'application/json' });
-        const url = URL.createObjectURL(dataBlob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = 'tasks-backup.json';
-        link.click();
-        URL.revokeObjectURL(url);
-    }
 
-    // Import tasks from JSON
-    importTasks(event) {
-        const file = event.target.files[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            try {
-                const importedTasks = JSON.parse(e.target.result);
-                if (Array.isArray(importedTasks)) {
-                    this.tasks = importedTasks;
-                    this.saveTasks();
-                    this.renderTasks();
-                    this.updateStats();
-                    alert('Tasks imported successfully!');
-                } else {
-                    alert('Invalid file format. Please select a valid tasks backup file.');
-                }
-            } catch (error) {
-                alert('Error importing tasks. Please check the file format.');
-                console.error('Import error:', error);
-            }
-        };
-        reader.readAsText(file);
-    }
 }
 
 // Initialize the task manager when the page loads

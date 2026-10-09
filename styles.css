@@ -1,7 +1,7 @@
 /* Custom Styles for Task Manager */
 
 body {
-    background: linear-gradient(135deg, aqua);
+    background: linear-gradient(135deg, #dffaff, #e9e3ff);
     min-height: 100vh;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
@@ -244,3 +244,10 @@ body {
 .task-item.low-priority {
     border-left: 5px solid #28a745;
 }
+.task-left { min-width: 0; gap: .5rem; }
+.task-text { overflow-wrap: anywhere; }
+.task-checkbox { flex-shrink: 0; }
+.task-actions { margin-left: .5rem; flex-shrink: 0; }
+.btn-warning { color: #212529; }
+:focus-visible { outline: 3px solid #362679; outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; transform: none !important; } }
